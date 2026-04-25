@@ -1,40 +1,13 @@
 name: 每日股票分析
 on:
-  schedule:
-    - cron: '0 10 * * 1-5'
   workflow_dispatch:
-    inputs:
-      force_run:
-        description: '强制立即执行分析'
-        required: false
-        default: 'true'
 jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-      - name: Run analysis
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          LITELLM_MODEL: ${{ secrets.LITELLM_MODEL }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-          BOCHA_API_KEY: ${{ secrets.BOCHA_API_KEY }}
-          EMAIL_ENABLED: ${{ secrets.EMAIL_ENABLED }}
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_SMTP_HOST: ${{ secrets.EMAIL_SMTP_HOST }}
-          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
-          EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
-          STOCK_LIST: ${{ secrets.STOCK_LIST }}
-          SCHEDULE_ENABLED: ${{ secrets.SCHEDULE_ENABLED }}
-          SCHEDULE_TIME: ${{ secrets.SCHEDULE_TIME }}
-          NOTIFICATION_MODE: full
-        run: python main.py
+      - run: pip install -r requirements.txt
+      - run: python main.py
