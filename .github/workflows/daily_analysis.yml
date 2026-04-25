@@ -8,6 +8,10 @@ on:
   # 手动触发
   workflow_dispatch:
     inputs:
+      force_run:
+        description: '强制立即执行分析'
+        required: false
+        default: 'true'
       mode:
         description: '运行模式'
         required: true
