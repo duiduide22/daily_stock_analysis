@@ -1,0 +1,38 @@
+name: 股票分析并发送邮件
+on:
+  workflow_dispatch:
+    inputs:
+      stock_list:
+        description: '请输入股票代码，逗号分隔（如 SH.600519,SZ.000858）'
+        required: true
+        default: 'SH.600519'
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+      - name: 执行分析
+        env:
+          STOCK_LIST: ${{ github.event.inputs.stock_list }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_BASE: https://api.deepseek.com
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: python main.py
+      - name: 发送邮件
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.qq.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: 股票分析报告 - ${{ github.event.inputs.stock_list }}
+          html_body: 请查收附件中的完整分析报告。
+          to: 478927874@qq.com
+          from: ${{ secrets.MAIL_USERNAME }}
+          attachments: report.md
