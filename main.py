@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime, timedelta
 from openai import OpenAI
 from tavily import TavilyClient
@@ -64,78 +65,74 @@ def get_badge_class(text):
         return "badge-hold"
 
 
-# ---------- 获取股票技术面与基本面数据 ----------
-def get_stock_data(symbol):
+# ---------- 获取股票技术面与基本面数据（带重试）----------
+def get_stock_data(symbol, retries=2):
     """
     从 akshare 获取技术面（近期K线）和基本面（PE/PB）数据。
     输入 symbol 格式: 'SH.600519' 或 'SZ.000858'
     返回: dict 包含 price_data, pe, pb, 或错误信息
     """
-    try:
-        # 解析市场与代码
-        if "." in symbol:
-            market, code = symbol.split(".")
-            market = market.upper()
-        else:
-            # 默认按上海处理
-            market, code = "SH", symbol
-
-        # ----- 获取近期日K线（最近30个交易日）-----
-        if market == "SH":
-            full_code = f"sh{code}"
-        else:
-            full_code = f"sz{code}"
-
-        # 使用 akshare 的 stock_zh_a_hist 接口
-        end_date = datetime.now().strftime("%Y%m%d")
-        start_date = (datetime.now() - timedelta(days=60)).strftime("%Y%m%d")  # 取60天以防停牌
-        df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
-        if df.empty:
-            return {"error": "未获取到行情数据"}
-
-        # 取最近30条
-        df = df.tail(30)
-        # 简单计算：最新价、5日均价、10日均价、20日均价、近期涨跌幅
-        latest = df.iloc[-1]
-        close_series = df["收盘"].astype(float)
-        ma5 = close_series.rolling(5).mean().iloc[-1]
-        ma10 = close_series.rolling(10).mean().iloc[-1]
-        ma20 = close_series.rolling(20).mean().iloc[-1]
-        pct_change_5d = (close_series.iloc[-1] / close_series.iloc[-6] - 1) * 100 if len(close_series) >= 6 else None
-        pct_change_20d = (close_series.iloc[-1] / close_series.iloc[-21] - 1) * 100 if len(close_series) >= 21 else None
-
-        price_info = {
-            "最新价": latest["收盘"],
-            "5日均价": round(ma5, 2) if not pd.isna(ma5) else None,
-            "10日均价": round(ma10, 2) if not pd.isna(ma10) else None,
-            "20日均价": round(ma20, 2) if not pd.isna(ma20) else None,
-            "5日涨跌幅(%)": round(pct_change_5d, 2) if pct_change_5d is not None else None,
-            "20日涨跌幅(%)": round(pct_change_20d, 2) if pct_change_20d is not None else None,
-            "最高价": latest["最高"],
-            "最低价": latest["最低"],
-            "成交量": latest["成交量"],
-        }
-
-        # ----- 获取市盈率、市净率（使用 stock_a_lg_indicator 接口）-----
+    for attempt in range(retries + 1):
         try:
-            ind_df = ak.stock_a_lg_indicator(symbol=code)
-            if not ind_df.empty:
-                latest_ind = ind_df.iloc[-1]
-                pe = latest_ind.get("pe", None)
-                pb = latest_ind.get("pb", None)
+            # 解析市场与代码
+            if "." in symbol:
+                market, code = symbol.split(".")
+                market = market.upper()
             else:
+                market, code = "SH", symbol
+
+            # 获取近期日K线
+            end_date = datetime.now().strftime("%Y%m%d")
+            start_date = (datetime.now() - timedelta(days=60)).strftime("%Y%m%d")
+            df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
+            if df.empty:
+                raise ValueError("未获取到行情数据")
+
+            df = df.tail(30)
+            latest = df.iloc[-1]
+            close_series = df["收盘"].astype(float)
+            ma5 = close_series.rolling(5).mean().iloc[-1]
+            ma10 = close_series.rolling(10).mean().iloc[-1]
+            ma20 = close_series.rolling(20).mean().iloc[-1]
+            pct_change_5d = (close_series.iloc[-1] / close_series.iloc[-6] - 1) * 100 if len(close_series) >= 6 else None
+            pct_change_20d = (close_series.iloc[-1] / close_series.iloc[-21] - 1) * 100 if len(close_series) >= 21 else None
+
+            price_info = {
+                "最新价": latest["收盘"],
+                "5日均价": round(ma5, 2) if not pd.isna(ma5) else None,
+                "10日均价": round(ma10, 2) if not pd.isna(ma10) else None,
+                "20日均价": round(ma20, 2) if not pd.isna(ma20) else None,
+                "5日涨跌幅(%)": round(pct_change_5d, 2) if pct_change_5d is not None else None,
+                "20日涨跌幅(%)": round(pct_change_20d, 2) if pct_change_20d is not None else None,
+                "最高价": latest["最高"],
+                "最低价": latest["最低"],
+                "成交量": latest["成交量"],
+            }
+
+            # 获取市盈率、市净率
+            try:
+                ind_df = ak.stock_a_lg_indicator(symbol=code)
+                if not ind_df.empty:
+                    latest_ind = ind_df.iloc[-1]
+                    pe = latest_ind.get("pe", None)
+                    pb = latest_ind.get("pb", None)
+                else:
+                    pe, pb = None, None
+            except Exception:
                 pe, pb = None, None
-        except Exception:
-            pe, pb = None, None
 
-        return {
-            "price_info": price_info,
-            "PE": pe,
-            "PB": pb,
-        }
+            return {
+                "price_info": price_info,
+                "PE": pe,
+                "PB": pb,
+            }
 
-    except Exception as e:
-        return {"error": f"获取数据失败: {e}"}
+        except Exception as e:
+            if attempt < retries:
+                time.sleep(3)
+                continue
+            else:
+                return {"error": f"获取数据失败(重试{retries}次后): {e}"}
 
 
 # ---------- 格式化数据为文本 ----------
