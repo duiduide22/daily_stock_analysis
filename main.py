@@ -77,7 +77,19 @@ def parse_rating(analysis):
             break
     return rating
 
-# ==================== 缠论分析模块 ====================
+# -------- 修复后的代码解析函数 --------
+def parse_symbol(symbol):
+    """安全解析市场与代码，仅按第一个 . 拆分"""
+    symbol = symbol.strip()
+    if "." in symbol:
+        parts = symbol.split(".", 1)  # 仅拆分一次
+        market = parts[0].upper()
+        code = parts[1]
+    else:
+        market, code = "SH", symbol
+    return market, code
+
+# -------- 缠论模块 --------
 def merge_k(df):
     df = df.reset_index(drop=True)
     new_rows = []
@@ -119,8 +131,7 @@ def find_fx(df_merged):
 
 def build_bi(fxs, df_merged):
     bi_list = []
-    if len(fxs) < 2:
-        return bi_list
+    if len(fxs) < 2: return bi_list
     i = 0
     while i < len(fxs)-1:
         a, b = fxs[i], fxs[i+1]
@@ -136,8 +147,7 @@ def build_bi(fxs, df_merged):
     return filtered
 
 def find_zhongshu(bi_list, df_merged):
-    if len(bi_list) < 3:
-        return None
+    if len(bi_list) < 3: return None
     for i in range(len(bi_list)-2, -1, -1):
         b1, b2, b3 = bi_list[i], bi_list[i+1], bi_list[i+2]
         if b1[2] != b2[2] and b2[2] != b3[2]:
@@ -148,8 +158,7 @@ def find_zhongshu(bi_list, df_merged):
                         df_merged.iloc[b1[1]]["low"], df_merged.iloc[b2[1]]["low"],
                         df_merged.iloc[b3[0]]["low"], df_merged.iloc[b3[1]]["low"]]
             zg, zd = min(high_pool), max(low_pool)
-            if zg >= zd:
-                return (zd, zg)
+            if zg >= zd: return (zd, zg)
     return None
 
 def chanlun_analysis(df_raw):
@@ -158,42 +167,31 @@ def chanlun_analysis(df_raw):
     fxs = find_fx(df_merged)
     bi_list = build_bi(fxs, df_merged)
     current_bi_dir = "无明确笔"
-    if bi_list:
-        current_bi_dir = "向上笔" if bi_list[-1][2] == 1 else "向下笔"
+    if bi_list: current_bi_dir = "向上笔" if bi_list[-1][2]==1 else "向下笔"
     zs = find_zhongshu(bi_list, df_merged)
     divergence = "无背驰"
-    if zs and len(bi_list) >= 2:
+    if zs and len(bi_list)>=2:
         close_series = pd.Series(df_raw["close"].values)
         ema12 = close_series.ewm(span=12, adjust=False).mean()
         ema26 = close_series.ewm(span=26, adjust=False).mean()
         dif = ema12 - ema26
-        enter_bi = bi_list[-2]
-        leave_bi = bi_list[-1]
+        enter_bi, leave_bi = bi_list[-2], bi_list[-1]
         s1, e1 = enter_bi[0], enter_bi[1]
         s2, e2 = leave_bi[0], leave_bi[1]
         area1 = abs(dif.iloc[s1:e1+1].sum())
         area2 = abs(dif.iloc[s2:e2+1].sum())
-        if leave_bi[2] == 1 and df_raw.iloc[e2]["close"] > zs[1] and area2 < area1 * 0.9:
+        if leave_bi[2]==1 and df_raw.iloc[e2]["close"]>zs[1] and area2<area1*0.9:
             divergence = "顶背驰风险"
-        elif leave_bi[2] == -1 and df_raw.iloc[e2]["close"] < zs[0] and area2 < area1 * 0.9:
+        elif leave_bi[2]==-1 and df_raw.iloc[e2]["close"]<zs[0] and area2<area1*0.9:
             divergence = "底背驰机会"
-    return {
-        "当前笔方向": current_bi_dir,
-        "最近中枢": f"{zs[0]:.2f}-{zs[1]:.2f}" if zs else "无",
-        "背驰状态": divergence
-    }
+    return {"当前笔方向": current_bi_dir, "最近中枢": f"{zs[0]:.2f}-{zs[1]:.2f}" if zs else "无", "背驰状态": divergence}
 
-# ==================== 基本面数据获取 ====================
+# -------- 基本面 --------
 def get_fundamental_data(symbol):
     try:
         bs.login()
-        if "." in symbol:
-            market, code = symbol.split(".")
-        else:
-            market, code = "SH", symbol
+        market, code = parse_symbol(symbol)
         market_lower = market.lower()
-
-        # 成长性
         growth_rs = bs.query_growth_data(code=f"{market_lower}.{code}", year=2026, quarter=1)
         df_growth = growth_rs.get_data()
         if df_growth.empty:
@@ -202,8 +200,6 @@ def get_fundamental_data(symbol):
         if df_growth.empty:
             growth_rs = bs.query_growth_data(code=f"{market_lower}.{code}", year=2025, quarter=3)
             df_growth = growth_rs.get_data()
-
-        # 盈利能力
         profit_rs = bs.query_profit_data(code=f"{market_lower}.{code}", year=2026, quarter=1)
         df_profit = profit_rs.get_data()
         if df_profit.empty:
@@ -212,103 +208,82 @@ def get_fundamental_data(symbol):
         if df_profit.empty:
             profit_rs = bs.query_profit_data(code=f"{market_lower}.{code}", year=2025, quarter=3)
             df_profit = profit_rs.get_data()
-
-        # 估值
         valuation_rs = bs.query_history_k_data_plus(
-            f"{market_lower}.{code}",
-            "date,close,peTTM,pbMRQ",
+            f"{market_lower}.{code}", "date,close,peTTM,pbMRQ",
             start_date=(datetime.now()-timedelta(days=7)).strftime("%Y-%m-%d"),
-            end_date=datetime.now().strftime("%Y-%m-%d"),
-            frequency="d",
-            adjustflag="2"
-        )
+            end_date=datetime.now().strftime("%Y-%m-%d"), frequency="d", adjustflag="2")
         df_val = valuation_rs.get_data()
         bs.logout()
-
         result = {}
         if not df_growth.empty:
-            latest_g = df_growth.iloc[-1]
-            result["营收同比增长(%)"] = latest_g.get("YOYOperateIncome", "N/A")
-            result["净利润同比增长(%)"] = latest_g.get("YOYNetProfit", "N/A")
+            lg = df_growth.iloc[-1]
+            result["营收同比增长(%)"] = lg.get("YOYOperateIncome","N/A")
+            result["净利润同比增长(%)"] = lg.get("YOYNetProfit","N/A")
         else:
             result["营收同比增长(%)"] = "N/A"
             result["净利润同比增长(%)"] = "N/A"
-
         if not df_profit.empty:
-            latest_p = df_profit.iloc[-1]
-            result["ROE(%)"] = latest_p.get("ROE", "N/A")
+            result["ROE(%)"] = df_profit.iloc[-1].get("ROE","N/A")
         else:
             result["ROE(%)"] = "N/A"
-
         if not df_val.empty:
-            latest_val = df_val.iloc[-1]
-            result["市盈率TTM"] = latest_val.get("peTTM", "N/A")
-            result["市净率"] = latest_val.get("pbMRQ", "N/A")
+            lv = df_val.iloc[-1]
+            result["市盈率TTM"] = lv.get("peTTM","N/A")
+            result["市净率"] = lv.get("pbMRQ","N/A")
         else:
             result["市盈率TTM"] = "N/A"
             result["市净率"] = "N/A"
-
         return result
     except Exception as e:
         try: bs.logout()
         except: pass
-        return {"error": f"基本面数据获取失败: {e}"}
+        return {"error": str(e)}
 
-# ==================== 技术面数据获取（返回原始df） ====================
+# -------- 技术面 --------
 def get_technical_data(symbol):
     try:
         bs.login()
-        if "." in symbol:
-            market, code = symbol.split(".")
-        else:
-            market, code = "SH", symbol
+        market, code = parse_symbol(symbol)
         market_lower = market.lower()
-
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
         rs = bs.query_history_k_data_plus(
-            f"{market_lower}.{code}",
-            "date,open,high,low,close,volume",
-            start_date=start_date,
-            end_date=end_date,
-            frequency="d",
-            adjustflag="2"
-        )
+            f"{market_lower}.{code}", "date,open,high,low,close,volume",
+            start_date=start_date, end_date=end_date, frequency="d", adjustflag="2")
         df = rs.get_data()
+        if df.empty or len(df) < 20:
+            start_date = (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d")
+            rs2 = bs.query_history_k_data_plus(
+                f"{market_lower}.{code}", "date,open,high,low,close,volume",
+                start_date=start_date, end_date=end_date, frequency="d", adjustflag="2")
+            df = rs2.get_data()
         bs.logout()
-
         if df.empty or len(df) < 20:
             return {"error": "K线数据不足", "df_raw": None}
 
         df = df.astype({"close": float, "high": float, "low": float, "volume": float})
-        close = df["close"].values
-        high = df["high"].values
-        low = df["low"].values
-        dates = df["date"].values
+        close = df["close"].values; high = df["high"].values; low = df["low"].values; dates = df["date"].values
 
         def sma(arr, n):
             if len(arr) < n: return None
-            return round(pd.Series(arr).rolling(n).mean().iloc[-1], 2)
+            return round(pd.Series(arr).rolling(n).mean().iloc[-1],2)
 
         ma5 = sma(close,5); ma10 = sma(close,10); ma20 = sma(close,20); ma60 = sma(close,60)
 
-        # MACD
         ema12 = pd.Series(close).ewm(span=12, adjust=False).mean()
         ema26 = pd.Series(close).ewm(span=26, adjust=False).mean()
         dif = ema12 - ema26
         dea = dif.ewm(span=9, adjust=False).mean()
-        macd_bar = 2 * (dif - dea)
-        macd_val = round(macd_bar.iloc[-1], 3)
+        macd_bar = 2*(dif-dea)
+        macd_val = round(macd_bar.iloc[-1],3)
         macd_signal = "金叉" if macd_bar.iloc[-1]>0 and macd_bar.iloc[-2]<=0 else ("死叉" if macd_bar.iloc[-1]<0 and macd_bar.iloc[-2]>=0 else "持续")
 
-        # RSI
         delta = pd.Series(close).diff()
         up = delta.clip(lower=0); down = -delta.clip(upper=0)
         avg_gain = up.rolling(14).mean().iloc[-1]
         avg_loss = down.rolling(14).mean().iloc[-1]
         rsi = 100 if avg_loss==0 else round(100-100/(1+avg_gain/avg_loss),1)
 
-        # KDJ
         low_n = pd.Series(low).rolling(9).min(); high_n = pd.Series(high).rolling(9).max()
         rsv = (close - low_n)/(high_n - low_n)*100
         k = rsv.ewm(com=2, adjust=False).mean()
@@ -316,98 +291,79 @@ def get_technical_data(symbol):
         j = 3*k - 2*d
         k_val = round(k.iloc[-1],1); d_val = round(d.iloc[-1],1); j_val = round(j.iloc[-1],1)
 
-        # 波动率
         returns = pd.Series(close).pct_change().dropna()
         volatility = round(returns.std() * (252**0.5)*100,2) if len(returns)>0 else None
 
-        # 涨跌幅
         change_1d = round((close[-1]/close[-2]-1)*100,2) if len(close)>=2 else None
         change_5d = round((close[-1]/close[-6]-1)*100,2) if len(close)>=6 else None
         change_20d = round((close[-1]/close[-21]-1)*100,2) if len(close)>=21 else None
         total_change = round((close[-1]/close[0]-1)*100,2)
 
         tech_dict = {
-            "最新价": df.iloc[-1]["close"],
-            "MA5": ma5, "MA10": ma10, "MA20": ma20, "MA60": ma60,
-            "MACD": macd_val, "MACD信号": macd_signal,
-            "RSI": rsi,
-            "K": k_val, "D": d_val, "J": j_val,
-            "年化波动率(%)": volatility,
-            "1日涨跌幅(%)": change_1d,
-            "5日涨跌幅(%)": change_5d,
-            "20日涨跌幅(%)": change_20d,
-            "区间涨跌幅(%)": total_change,
-            "数据区间": f"{dates[0]} 至 {dates[-1]}",
-            "df_raw": df  # 返回原始数据给缠论
+            "最新价": df.iloc[-1]["close"], "MA5": ma5, "MA10": ma10, "MA20": ma20, "MA60": ma60,
+            "MACD": macd_val, "MACD信号": macd_signal, "RSI": rsi,
+            "K": k_val, "D": d_val, "J": j_val, "年化波动率(%)": volatility,
+            "1日涨跌幅(%)": change_1d, "5日涨跌幅(%)": change_5d,
+            "20日涨跌幅(%)": change_20d, "区间涨跌幅(%)": total_change,
+            "数据区间": f"{dates[0]} 至 {dates[-1]}", "df_raw": df
         }
         return tech_dict
     except Exception as e:
         try: bs.logout()
         except: pass
-        return {"error": f"技术指标计算失败: {e}", "df_raw": None}
+        return {"error": str(e), "df_raw": None}
 
-# ==================== 格式化函数 ====================
+# -------- 格式化函数 --------
 def format_fundamental_text(data):
     if "error" in data: return f"基本面数据获取失败：{data['error']}"
-    lines = ["【基本面数据】"]
-    for k, v in data.items(): lines.append(f"   {k}: {v}")
-    return "\n".join(lines)
+    return "\n".join(["【基本面数据】"]+[f"   {k}: {v}" for k,v in data.items()])
 
 def format_fundamental_html(data):
     if "error" in data: return f'<p style="color:#d4380d;">基本面数据获取失败：{data["error"]}</p>'
     html = '<table class="data-table"><tr><th>指标</th><th>数值</th></tr>'
-    for k, v in data.items(): html += f"<tr><td>{k}</td><td>{v}</td></tr>"
-    html += "</table>"
-    return html
+    for k,v in data.items(): html += f"<tr><td>{k}</td><td>{v}</td></tr>"
+    return html+"</table>"
 
 def format_tech_text(data):
     if "error" in data: return f"技术面数据获取失败：{data['error']}"
-    return "\n".join(["【技术面数据】"] + [f"   {k}: {v}" for k,v in data.items() if k != "df_raw"])
+    return "\n".join(["【技术面数据】"]+[f"   {k}: {v}" for k,v in data.items() if k!="df_raw"])
 
 def format_tech_html(data):
     if "error" in data: return f'<p style="color:#d4380d;">技术面数据获取失败：{data["error"]}</p>'
     html = '<table class="data-table"><tr><th>指标</th><th>数值</th></tr>'
     for k,v in data.items():
-        if k == "df_raw": continue
+        if k=="df_raw": continue
         html += f"<tr><td>{k}</td><td>{v}</td></tr>"
-    html += "</table>"
-    return html
+    return html+"</table>"
 
 def format_chanlun_text(data):
     if "error" in data: return f"缠论分析失败：{data['error']}"
-    lines = ["【缠论结构】"]
-    for k,v in data.items(): lines.append(f"   {k}: {v}")
-    return "\n".join(lines)
+    return "\n".join(["【缠论结构】"]+[f"   {k}: {v}" for k,v in data.items()])
 
 def format_chanlun_html(data):
     if "error" in data: return f'<p style="color:#d4380d;">缠论分析失败：{data["error"]}</p>'
     html = '<table class="data-table"><tr><th>指标</th><th>数值</th></tr>'
     for k,v in data.items(): html += f"<tr><td>{k}</td><td>{v}</td></tr>"
-    html += "</table>"
-    return html
+    return html+"</table>"
 
-# ---------- 横向对比 ----------
+# -------- 横向对比 --------
 def compare_stocks(stock_results):
     if len(stock_results) < 2: return ""
-    summary = "\n".join([f"{s}: {r} (PE={t.get('市盈率TTM','N/A')}, RSI={m.get('RSI','N/A')}, 缠论={c.get('背驰状态','N/A')})"
-                        for s, r, t, m, c, _ in stock_results])
-    prompt = f"""以下是几只股票的分析结论、市盈率、RSI、缠论背驰摘要，请横向比较并给出投资优先级建议。
+    summary = "\n".join([f"{s}: {r}" for s, r, _, _, _, _ in stock_results])
+    prompt = f"""以下是几只股票的分析结论摘要，请横向比较并给出投资优先级建议。
 {summary}
 请输出：
-1. 综合排序（从优到劣）
+1. 综合排序
 2. 配置建议
-3. 整体策略（一句话）"""
+3. 整体策略"""
     try:
-        response = ds_client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], temperature=0.3)
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"对比分析失败: {e}"
+        resp = ds_client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], temperature=0.3)
+        return resp.choices[0].message.content
+    except: return "对比分析失败"
 
-# ========== 单股综合分析 ==========
+# -------- 单股分析（智能降级）--------
 def analyze_single(stock):
-    # 基本面
     fund_data = get_fundamental_data(stock)
-    # 技术面（含原始df）
     tech_result = get_technical_data(stock)
     if "error" in tech_result:
         tech_data = tech_result
@@ -415,13 +371,8 @@ def analyze_single(stock):
     else:
         df_raw = tech_result.pop("df_raw")
         tech_data = tech_result
-    # 缠论
-    if df_raw is not None:
-        chanlun_data = chanlun_analysis(df_raw)
-    else:
-        chanlun_data = {"error": "缺少K线数据，无法进行缠论分析"}
+    chanlun_data = chanlun_analysis(df_raw) if df_raw is not None else {"error": "缺少K线数据"}
 
-    # 消息面
     try:
         search_result = tavily_client.search(query=f"{stock} 股票 近期新闻 行情", max_results=5)
         raw_items = [f"- {r['title']}: {r['content'][:200]}" for r in search_result.get("results", [])]
@@ -432,37 +383,39 @@ def analyze_single(stock):
         news_text = f"搜索新闻失败: {e}"
         news_items = [news_text]
 
-    # AI 综合分析
-    prompt = f"""你是一位资深股票分析师。请结合基本面、技术面、缠论结构和近期资讯，对股票 {stock} 做出深度分析。
+    # 智能降级 prompt：根据数据可用性自动调整
+    has_fund = "error" not in fund_data
+    has_tech = "error" not in tech_data
+    has_chanlun = "error" not in chanlun_data
 
-【基本面数据】
-{format_fundamental_text(fund_data)}
-
-【技术面数据】
-{format_tech_text(tech_data)}
-
-【缠论结构】
-{format_chanlun_text(chanlun_data)}
-
-【近期资讯】
-{news_text}
-
-请严格按照以下格式输出，每个字段一行：
+    prompt = f"你是一位资深股票分析师。请基于以下信息对股票 {stock} 做出分析。\n\n"
+    if has_fund:
+        prompt += f"【基本面数据】\n{format_fundamental_text(fund_data)}\n\n"
+    else:
+        prompt += "【基本面数据】暂未获取到，请基于技术和消息面判断。\n\n"
+    if has_tech:
+        prompt += f"【技术面数据】\n{format_tech_text(tech_data)}\n\n"
+    else:
+        prompt += "【技术面数据】暂未获取到，请基于基本面和消息面判断。\n\n"
+    if has_chanlun:
+        prompt += f"【缠论结构】\n{format_chanlun_text(chanlun_data)}\n\n"
+    prompt += f"【近期资讯】\n{news_text}\n\n"
+    prompt += """请严格按照以下格式输出：
 评级：（买入/持有/卖出）
-核心逻辑：（1-2句话，必须引用具体数据或指标）
+核心逻辑：（1-2句话）
 市场情绪：（积极/中性/谨慎）
 短期展望：（未来1-4周走势预判）
-风险提示：（1-2个主要风险，尽量量化参考）"""
+风险提示：（1-2个主要风险）"""
+
     try:
-        response = ds_client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], temperature=0.3)
-        analysis = response.choices[0].message.content
+        resp = ds_client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], temperature=0.3)
+        analysis = resp.choices[0].message.content
     except Exception as e:
         analysis = f"分析失败: {e}"
 
-    rating = parse_rating(analysis)
-    return stock, rating, fund_data, tech_data, chanlun_data, news_items, analysis
+    return stock, parse_rating(analysis), fund_data, tech_data, chanlun_data, news_items, analysis
 
-# ---------- 主流程 ----------
+# -------- 主流程 --------
 stock_results = []
 md_lines = []
 html_parts = []
@@ -472,58 +425,30 @@ for stock in stocks:
     stock_results.append((stock, rating, fund_data, tech_data, chanlun_data, analysis))
     badge_class = get_badge_class(rating)
 
-    # Markdown
     md_lines.append(f"## {stock}\n**评级：** {rating}\n\n"
                     f"**基本面：**\n{format_fundamental_text(fund_data)}\n\n"
                     f"**技术面：**\n{format_tech_text(tech_data)}\n\n"
                     f"**缠论结构：**\n{format_chanlun_text(chanlun_data)}\n\n"
-                    f"**资讯摘要：**\n" + "\n".join(news_items) + f"\n\n**AI 分析：**\n{analysis}\n\n---\n")
+                    f"**资讯摘要：**\n"+"\n".join(news_items)+f"\n\n**AI 分析：**\n{analysis}\n\n---\n")
 
-    # HTML 卡片
     html_parts.append(f"""
     <div class="stock-card">
       <div class="stock-title">{stock} <span class="badge {badge_class}">{rating}</span></div>
-      <div class="section">
-        <div class="section-title">📊 基本面</div>
-        {format_fundamental_html(fund_data)}
-      </div>
-      <div class="section">
-        <div class="section-title">📈 技术面</div>
-        {format_tech_html(tech_data)}
-      </div>
-      <div class="section">
-        <div class="section-title">📐 缠论结构</div>
-        {format_chanlun_html(chanlun_data)}
-      </div>
-      <div class="section">
-        <div class="section-title">📰 资讯摘要</div>
-        <ul class="news-list">
-          {''.join(f'<li>{item.lstrip("- ")}</li>' for item in news_items)}
-        </ul>
-      </div>
-      <div class="section">
-        <div class="section-title">🤖 AI 综合分析</div>
-        <div class="analysis">{analysis}</div>
-      </div>
-    </div>
-    """)
+      <div class="section"><div class="section-title">📊 基本面</div>{format_fundamental_html(fund_data)}</div>
+      <div class="section"><div class="section-title">📈 技术面</div>{format_tech_html(tech_data)}</div>
+      <div class="section"><div class="section-title">📐 缠论结构</div>{format_chanlun_html(chanlun_data)}</div>
+      <div class="section"><div class="section-title">📰 资讯摘要</div><ul class="news-list">{''.join(f'<li>{item.lstrip("- ")}</li>' for item in news_items)}</ul></div>
+      <div class="section"><div class="section-title">🤖 AI 综合分析</div><div class="analysis">{analysis}</div></div>
+    </div>""")
 
-# 横向对比
 if len(stocks) >= 2:
     compare_text = compare_stocks(stock_results)
     md_lines.append(f"\n# 横向对比总览\n\n{compare_text}")
-    html_parts.append(f"""
-    <div class="compare-card">
-      <div class="section-title" style="font-size:16px;">🔍 横向对比总览</div>
-      <div class="analysis">{compare_text}</div>
-    </div>
-    """)
+    html_parts.append(f"""<div class="compare-card"><div class="section-title" style="font-size:16px;">🔍 横向对比总览</div><div class="analysis">{compare_text}</div></div>""")
 
-# ---------- 保存报告 ----------
-md_content = f"# 股票分析报告\n\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n" + "\n".join(md_lines)
+md_content = f"# 股票分析报告\n\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"+"\n".join(md_lines)
 with open("report.md", "w", encoding="utf-8") as f: f.write(md_content)
-
-html_content = html_header.format(time=datetime.now().strftime('%Y-%m-%d %H:%M:%S')) + "\n".join(html_parts) + html_footer
+html_content = html_header.format(time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))+"\n".join(html_parts)+html_footer
 with open("report.html", "w", encoding="utf-8") as f: f.write(html_content)
 
 print("报告已生成：report.md 和 report.html")
