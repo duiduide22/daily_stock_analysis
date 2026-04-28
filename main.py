@@ -15,29 +15,30 @@ stock_input = os.environ.get("STOCK_LIST", "SH.600519")
 stocks = [s.strip() for s in stock_input.split(",") if s.strip()]
 
 # ---------- HTML 样式与页头 ----------
+# 注意：CSS 大括号全部写成双大括号，避免与 format 冲突
 html_header = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; padding: 20px; background-color: #f5f7fa; }
-  .report { max-width: 700px; margin: 0 auto; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
-  h1 { color: #1a1a1a; font-size: 24px; margin-top: 0; }
-  .time { color: #8c8c8c; font-size: 14px; margin-bottom: 30px; }
-  .stock-card { border: 1px solid #e8e8e8; border-radius: 10px; padding: 20px; margin-bottom: 25px; background: #fafafa; }
-  .stock-title { font-size: 20px; font-weight: 600; margin-bottom: 10px; color: #262626; }
-  .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 14px; font-weight: 600; color: white; }
-  .badge-buy { background-color: #4caf50; }
-  .badge-hold { background-color: #ff9800; }
-  .badge-sell { background-color: #f44336; }
-  .section { margin-top: 15px; }
-  .section-title { font-weight: 600; color: #595959; margin-bottom: 6px; }
-  .news-list { list-style: none; padding: 0; margin: 0; }
-  .news-list li { margin-bottom: 8px; border-left: 3px solid #1890ff; padding-left: 10px; color: #434343; font-size: 14px; }
-  .analysis { white-space: pre-wrap; line-height: 1.6; }
-  .risk { color: #d4380d; }
-  hr { border: none; border-top: 1px solid #f0f0f0; margin: 25px 0 10px; }
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; padding: 20px; background-color: #f5f7fa; }}
+  .report {{ max-width: 700px; margin: 0 auto; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }}
+  h1 {{ color: #1a1a1a; font-size: 24px; margin-top: 0; }}
+  .time {{ color: #8c8c8c; font-size: 14px; margin-bottom: 30px; }}
+  .stock-card {{ border: 1px solid #e8e8e8; border-radius: 10px; padding: 20px; margin-bottom: 25px; background: #fafafa; }}
+  .stock-title {{ font-size: 20px; font-weight: 600; margin-bottom: 10px; color: #262626; }}
+  .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 14px; font-weight: 600; color: white; }}
+  .badge-buy {{ background-color: #4caf50; }}
+  .badge-hold {{ background-color: #ff9800; }}
+  .badge-sell {{ background-color: #f44336; }}
+  .section {{ margin-top: 15px; }}
+  .section-title {{ font-weight: 600; color: #595959; margin-bottom: 6px; }}
+  .news-list {{ list-style: none; padding: 0; margin: 0; }}
+  .news-list li {{ margin-bottom: 8px; border-left: 3px solid #1890ff; padding-left: 10px; color: #434343; font-size: 14px; }}
+  .analysis {{ white-space: pre-wrap; line-height: 1.6; }}
+  .risk {{ color: #d4380d; }}
+  hr {{ border: none; border-top: 1px solid #f0f0f0; margin: 25px 0 10px; }}
 </style>
 </head>
 <body>
@@ -48,6 +49,7 @@ html_header = """<!DOCTYPE html>
 
 html_footer = """</div></body></html>"""
 
+
 # ---------- 评级徽章 ----------
 def get_badge_class(text):
     if "买入" in text:
@@ -56,6 +58,7 @@ def get_badge_class(text):
         return "badge-sell"
     else:
         return "badge-hold"
+
 
 # ---------- 分析主逻辑 ----------
 md_lines = []
