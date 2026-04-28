@@ -1,2 +1,4 @@
 openai
 tavily-python
+akshare
+pandas
