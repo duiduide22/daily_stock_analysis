@@ -1,47 +1,85 @@
 import os
-import sys
 from datetime import datetime
 from openai import OpenAI
 from tavily import TavilyClient
 
-# 从环境变量读取密钥（由 GitHub Secrets 注入）
+# ---------- 初始化 ----------
 deepseek_key = os.environ["DEEPSEEK_API_KEY"]
 deepseek_base = os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com")
 tavily_key = os.environ["TAVILY_API_KEY"]
 
-# 初始化客户端
 ds_client = OpenAI(api_key=deepseek_key, base_url=deepseek_base)
 tavily_client = TavilyClient(api_key=tavily_key)
 
-# 获取要分析的股票列表（从 Actions 输入变量）
 stock_input = os.environ.get("STOCK_LIST", "SH.600519")
 stocks = [s.strip() for s in stock_input.split(",") if s.strip()]
 
-report_lines = []
-report_lines.append(f"# 股票分析报告\n\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+# ---------- HTML 样式与页头 ----------
+html_header = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; padding: 20px; background-color: #f5f7fa; }
+  .report { max-width: 700px; margin: 0 auto; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+  h1 { color: #1a1a1a; font-size: 24px; margin-top: 0; }
+  .time { color: #8c8c8c; font-size: 14px; margin-bottom: 30px; }
+  .stock-card { border: 1px solid #e8e8e8; border-radius: 10px; padding: 20px; margin-bottom: 25px; background: #fafafa; }
+  .stock-title { font-size: 20px; font-weight: 600; margin-bottom: 10px; color: #262626; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 14px; font-weight: 600; color: white; }
+  .badge-buy { background-color: #4caf50; }
+  .badge-hold { background-color: #ff9800; }
+  .badge-sell { background-color: #f44336; }
+  .section { margin-top: 15px; }
+  .section-title { font-weight: 600; color: #595959; margin-bottom: 6px; }
+  .news-list { list-style: none; padding: 0; margin: 0; }
+  .news-list li { margin-bottom: 8px; border-left: 3px solid #1890ff; padding-left: 10px; color: #434343; font-size: 14px; }
+  .analysis { white-space: pre-wrap; line-height: 1.6; }
+  .risk { color: #d4380d; }
+  hr { border: none; border-top: 1px solid #f0f0f0; margin: 25px 0 10px; }
+</style>
+</head>
+<body>
+<div class="report">
+<h1>📈 股票分析报告</h1>
+<p class="time">生成时间：{time}</p>
+"""
+
+html_footer = """</div></body></html>"""
+
+# ---------- 评级徽章 ----------
+def get_badge_class(text):
+    if "买入" in text:
+        return "badge-buy"
+    elif "卖出" in text:
+        return "badge-sell"
+    else:
+        return "badge-hold"
+
+# ---------- 分析主逻辑 ----------
+md_lines = []
+html_parts = []
 
 for stock in stocks:
-    report_lines.append(f"## {stock}\n")
-    
-    # 1. 使用 Tavily 搜索近期新闻
+    # ---- Tavily 搜索 ----
     try:
         search_result = tavily_client.search(query=f"{stock} 股票 近期新闻 行情", max_results=5)
-        news_text = "\n".join([f"- {r['title']}: {r['content'][:200]}" for r in search_result.get("results", [])])
+        news_items = [f"- {r['title']}: {r['content'][:200]}" for r in search_result.get("results", [])]
+        news_text = "\n".join(news_items)
     except Exception as e:
         news_text = f"搜索新闻失败: {e}"
-    
-    # 2. 使用 DeepSeek 生成分析决策
-    prompt = f"""
-你是一位专业的股票分析师。请根据以下搜索到的近期资讯，对股票 {stock} 做出简短分析。
+        news_items = [news_text]
+
+    # ---- DeepSeek 分析 ----
+    prompt = f"""你是一位专业的股票分析师。请根据以下搜索到的近期资讯，对股票 {stock} 做出简短分析。
 资讯：
 {news_text}
 
-请输出：
-- 评级（买入/持有/卖出）
-- 一句话核心逻辑
-- 风险提示
-回复请直接给出内容，不要解释。
-"""
+请用三行严格格式输出，不要其他内容：
+评级：（买入/持有/卖出）
+核心逻辑：一句话说明
+风险提示：一句话说明"""
     try:
         response = ds_client.chat.completions.create(
             model="deepseek-chat",
@@ -51,13 +89,51 @@ for stock in stocks:
         analysis = response.choices[0].message.content
     except Exception as e:
         analysis = f"分析失败: {e}"
-    
-    report_lines.append(f"**资讯摘要：**\n{news_text}\n\n**AI 分析：**\n{analysis}\n\n---\n")
 
-# 保存报告文件
-report_content = "\n".join(report_lines)
+    # ---- 解析评级 ----
+    rating = "持有"
+    for line in analysis.split("\n"):
+        if line.startswith("评级") or line.startswith("- 评级"):
+            if "买入" in line:
+                rating = "买入"
+            elif "卖出" in line:
+                rating = "卖出"
+            else:
+                rating = "持有"
+            break
+
+    badge_class = get_badge_class(rating)
+
+    # ---- 构建 Markdown 报告（作为附件）----
+    md_lines.append(f"## {stock}\n")
+    md_lines.append(f"**评级：** {rating}\n\n")
+    md_lines.append(f"**资讯摘要：**\n{news_text}\n\n**AI 分析：**\n{analysis}\n\n---\n")
+
+    # ---- 构建 HTML 卡片 ----
+    html_parts.append(f"""
+    <div class="stock-card">
+      <div class="stock-title">{stock} <span class="badge {badge_class}">{rating}</span></div>
+      <div class="section">
+        <div class="section-title">📰 资讯摘要</div>
+        <ul class="news-list">
+          {''.join(f'<li>{item.lstrip("- ")}</li>' for item in news_items)}
+        </ul>
+      </div>
+      <div class="section">
+        <div class="section-title">🤖 AI 分析</div>
+        <div class="analysis">{analysis}</div>
+      </div>
+    </div>
+    """)
+
+# ---------- 保存 Markdown 附件 ----------
+md_content = f"# 股票分析报告\n\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n" + "\n".join(md_lines)
 with open("report.md", "w", encoding="utf-8") as f:
-    f.write(report_content)
+    f.write(md_content)
 
-print("分析完成，报告已保存为 report.md")
-print(report_content)  # 同时在日志中输出，便于查看
+# ---------- 保存 HTML 报告 ----------
+html_content = html_header.format(time=datetime.now().strftime('%Y-%m-%d %H:%M:%S')) + "\n".join(html_parts) + html_footer
+with open("report.html", "w", encoding="utf-8") as f:
+    f.write(html_content)
+
+print("报告已生成：report.md 和 report.html")
