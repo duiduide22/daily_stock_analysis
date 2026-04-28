@@ -24,6 +24,13 @@ jobs:
           DEEPSEEK_API_BASE: https://api.deepseek.com
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
         run: python main.py
+      - name: 读取 HTML 报告内容
+        id: read_html
+        run: |
+          content=$(cat report.html)
+          echo 'html_content<<EOF' >> $GITHUB_OUTPUT
+          echo "$content" >> $GITHUB_OUTPUT
+          echo 'EOF' >> $GITHUB_OUTPUT
       - name: 发送邮件
         uses: dawidd6/action-send-mail@v3
         with:
@@ -32,7 +39,7 @@ jobs:
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
           subject: 股票分析报告 - ${{ github.event.inputs.stock_list }}
-          html_body: 请查收附件中的完整分析报告。
+          html_body: ${{ steps.read_html.outputs.html_content }}
           to: 478927874@qq.com
           from: ${{ secrets.MAIL_USERNAME }}
           attachments: report.md
