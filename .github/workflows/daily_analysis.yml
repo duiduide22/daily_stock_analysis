@@ -13,6 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+      - uses: dawidd6/action-send-mail@v3
+     with:
+      server_address: smtp.qq.com
+      server_port: 465
+    # ... 其他配置保持不变 ...
         with:
           python-version: '3.11'
       - name: 安装依赖
